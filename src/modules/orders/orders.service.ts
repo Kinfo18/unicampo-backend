@@ -7,6 +7,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { UsersService } from '../users/users.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
+import { OrderStatus } from '@prisma/client';
 
 @Injectable()
 export class OrdersService {
@@ -67,7 +68,6 @@ export class OrdersService {
 
             return order;
         }).then(async (order) => {
-            // Auto-guardar dirección si es la primera vez del usuario
             await this.usersService.saveAddressIfEmpty(
                 userId,
                 shippingAddress,
@@ -78,19 +78,22 @@ export class OrdersService {
         });
     }
 
-    async findAll(page = 1, limit = 10) {
+    async findAll(page = 1, limit = 20, status?: OrderStatus) {
         const skip = (page - 1) * limit;
+        const where = status ? { status } : {};
+
         const [orders, total] = await this.prisma.$transaction([
             this.prisma.order.findMany({
+                where,
                 skip,
                 take: limit,
                 include: {
                     user: { select: { id: true, name: true, email: true } },
-                    items: { include: { product: { select: { name: true } } } },
+                    items: { include: { product: { select: { name: true, images: true } } } },
                 },
                 orderBy: { createdAt: 'desc' },
             }),
-            this.prisma.order.count(),
+            this.prisma.order.count({ where }),
         ]);
         return { data: orders, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };
     }
@@ -121,11 +124,11 @@ export class OrdersService {
         return order;
     }
 
-    async updateStatus(id: string, updateOrderStatusDto: UpdateOrderStatusDto) {
+    async updateStatus(id: string, dto: UpdateOrderStatusDto) {
         await this.findOne(id);
         return this.prisma.order.update({
             where: { id },
-            data: { status: updateOrderStatusDto.status },
+            data: { status: dto.status },
         });
     }
 }
