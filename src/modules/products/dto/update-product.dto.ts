@@ -1,6 +1,7 @@
 import {
   IsString, MinLength, IsOptional,
-  IsNumber, IsPositive, IsArray, Min,
+  IsNumber, IsPositive, IsArray,
+  IsBoolean, Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -28,6 +29,10 @@ export class UpdateProductDto {
   @IsOptional()
   @IsString()
   categoryId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
 
   @IsOptional()
   @IsNumber()
