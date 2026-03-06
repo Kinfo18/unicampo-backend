@@ -4,22 +4,24 @@ import {
     BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
+import { UsersService } from '../users/users.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 
 @Injectable()
 export class OrdersService {
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly usersService: UsersService,
+    ) { }
 
     async create(userId: string, createOrderDto: CreateOrderDto) {
-        const { items, shippingAddress, notes } = createOrderDto;
+        const { items, shippingAddress, notes, municipality, department } = createOrderDto;
 
-        // Usar transacción para garantizar consistencia
         return this.prisma.$transaction(async (tx) => {
             let total = 0;
             const orderItemsData: { productId: string; quantity: number; unitPrice: number }[] = [];
 
-            // Verificar stock y calcular total
             for (const item of items) {
                 const product = await tx.product.findUnique({
                     where: { id: item.productId, isActive: true },
@@ -27,9 +29,7 @@ export class OrdersService {
                 });
 
                 if (!product) {
-                    throw new NotFoundException(
-                        `Producto ${item.productId} no encontrado`,
-                    );
+                    throw new NotFoundException(`Producto ${item.productId} no encontrado`);
                 }
 
                 if (!product.inventory || product.inventory.quantity < item.quantity) {
@@ -40,15 +40,9 @@ export class OrdersService {
 
                 const unitPrice = Number(product.price);
                 total += unitPrice * item.quantity;
-
-                orderItemsData.push({
-                    productId: item.productId,
-                    quantity: item.quantity,
-                    unitPrice,
-                });
+                orderItemsData.push({ productId: item.productId, quantity: item.quantity, unitPrice });
             }
 
-            // Crear el pedido con sus items
             const order = await tx.order.create({
                 data: {
                     userId,
@@ -64,7 +58,6 @@ export class OrdersService {
                 },
             });
 
-            // Descontar stock de cada producto
             for (const item of items) {
                 await tx.inventory.update({
                     where: { productId: item.productId },
@@ -73,31 +66,33 @@ export class OrdersService {
             }
 
             return order;
+        }).then(async (order) => {
+            // Auto-guardar dirección si es la primera vez del usuario
+            await this.usersService.saveAddressIfEmpty(
+                userId,
+                shippingAddress,
+                municipality,
+                department,
+            );
+            return order;
         });
     }
 
     async findAll(page = 1, limit = 10) {
         const skip = (page - 1) * limit;
-
         const [orders, total] = await this.prisma.$transaction([
             this.prisma.order.findMany({
                 skip,
                 take: limit,
                 include: {
                     user: { select: { id: true, name: true, email: true } },
-                    items: {
-                        include: { product: { select: { name: true } } },
-                    },
+                    items: { include: { product: { select: { name: true } } } },
                 },
                 orderBy: { createdAt: 'desc' },
             }),
             this.prisma.order.count(),
         ]);
-
-        return {
-            data: orders,
-            meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
-        };
+        return { data: orders, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };
     }
 
     async findByUser(userId: string) {
@@ -105,9 +100,7 @@ export class OrdersService {
             where: { userId },
             include: {
                 items: {
-                    include: {
-                        product: { select: { name: true, images: true, slug: true } },
-                    },
+                    include: { product: { select: { name: true, images: true, slug: true } } },
                 },
             },
             orderBy: { createdAt: 'desc' },
@@ -120,20 +113,16 @@ export class OrdersService {
             include: {
                 user: { select: { id: true, name: true, email: true } },
                 items: {
-                    include: {
-                        product: { select: { name: true, images: true, slug: true } },
-                    },
+                    include: { product: { select: { name: true, images: true, slug: true } } },
                 },
             },
         });
-
         if (!order) throw new NotFoundException('Pedido no encontrado');
         return order;
     }
 
     async updateStatus(id: string, updateOrderStatusDto: UpdateOrderStatusDto) {
         await this.findOne(id);
-
         return this.prisma.order.update({
             where: { id },
             data: { status: updateOrderStatusDto.status },
