@@ -22,10 +22,17 @@ interface JwtPayload {
 export class OrdersController {
     constructor(private readonly ordersService: OrdersService) { }
 
-    // ---- Rutas estáticas primero ----
+    // Cliente crea pedido
+    @Post()
+    create(
+        @CurrentUser() user: JwtPayload,
+        @Body() createOrderDto: CreateOrderDto,
+    ) {
+        return this.ordersService.create(user.sub, createOrderDto);
+    }
 
-    // ADMIN: todos los pedidos (con filtro opcional por estado)
-    @Get()
+    // ADMIN: todos los pedidos con filtro opcional
+    @Get('admin/all')
     @UseGuards(RolesGuard)
     @Roles(Role.ADMIN)
     findAll(
@@ -46,15 +53,6 @@ export class OrdersController {
         return this.ordersService.findByUser(user.sub);
     }
 
-    // Cliente crea pedido
-    @Post()
-    create(
-        @CurrentUser() user: JwtPayload,
-        @Body() createOrderDto: CreateOrderDto,
-    ) {
-        return this.ordersService.create(user.sub, createOrderDto);
-    }
-
     // ADMIN actualiza estado
     @Patch(':id/status')
     @UseGuards(RolesGuard)
@@ -66,9 +64,7 @@ export class OrdersController {
         return this.ordersService.updateStatus(id, updateOrderStatusDto);
     }
 
-    // ---- Rutas dinámicas al final ----
-
-    // Detalle de un pedido (por id)
+    // Detalle de un pedido
     @Get(':id')
     findOne(@Param('id') id: string) {
         return this.ordersService.findOne(id);
