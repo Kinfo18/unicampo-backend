@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
+import type { File as MulterFile } from 'multer';
 import { extname, join } from 'path';
 import { UsersService } from './users.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
@@ -59,14 +60,13 @@ export class UsersController {
     @UploadedFile(
       new ParseFilePipe({
         validators: [
-          new MaxFileSizeValidator({ maxSize: 2 * 1024 * 1024 }), // 2 MB
+          new MaxFileSizeValidator({ maxSize: 2 * 1024 * 1024 }),
           new FileTypeValidator({ fileType: /^image\/(jpeg|png|webp)$/ }),
         ],
       }),
     )
-    file: Express.Multer.File,
+    file: MulterFile,
   ) {
-    // Guardar ruta relativa accesible públicamente
     const avatarUrl = `/uploads/avatars/${file.filename}`;
     return this.usersService.updateAvatar(user.sub, avatarUrl);
   }
