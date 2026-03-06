@@ -7,6 +7,7 @@ import { CategoriesModule } from './modules/categories/categories.module';
 import { ProductsModule } from './modules/products/products.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { OrdersModule } from './modules/orders/orders.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { OrdersModule } from './modules/orders/orders.module';
     ProductsModule,
     InventoryModule,
     OrdersModule,
+    DashboardModule,
   ],
   providers: [PrismaService],
   exports: [PrismaService],
