@@ -6,6 +6,7 @@ import { UsersModule } from './modules/users/users.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { ProductsModule } from './modules/products/products.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
+import { OrdersModule } from './modules/orders/orders.module';
 
 @Module({
   imports: [
@@ -15,8 +16,9 @@ import { InventoryModule } from './modules/inventory/inventory.module';
     CategoriesModule,
     ProductsModule,
     InventoryModule,
+    OrdersModule,
   ],
   providers: [PrismaService],
   exports: [PrismaService],
 })
-export class AppModule {}
+export class AppModule { }
