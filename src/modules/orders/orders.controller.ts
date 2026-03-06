@@ -22,6 +22,31 @@ interface JwtPayload {
 export class OrdersController {
     constructor(private readonly ordersService: OrdersService) { }
 
+    // ---- Rutas estáticas primero ----
+
+    // ADMIN: todos los pedidos (con filtro opcional por estado)
+    @Get()
+    @UseGuards(RolesGuard)
+    @Roles(Role.ADMIN)
+    findAll(
+        @Query('page') page = '1',
+        @Query('limit') limit = '20',
+        @Query('status') status?: string,
+    ) {
+        const validStatuses = Object.values(OrderStatus);
+        const parsedStatus = status && validStatuses.includes(status as OrderStatus)
+            ? (status as OrderStatus)
+            : undefined;
+        return this.ordersService.findAll(Number(page), Number(limit), parsedStatus);
+    }
+
+    // Cliente: sus propios pedidos
+    @Get('my-orders')
+    findMyOrders(@CurrentUser() user: JwtPayload) {
+        return this.ordersService.findByUser(user.sub);
+    }
+
+    // Cliente crea pedido
     @Post()
     create(
         @CurrentUser() user: JwtPayload,
@@ -30,27 +55,7 @@ export class OrdersController {
         return this.ordersService.create(user.sub, createOrderDto);
     }
 
-    @Get('my-orders')
-    findMyOrders(@CurrentUser() user: JwtPayload) {
-        return this.ordersService.findByUser(user.sub);
-    }
-
-    @Get(':id')
-    findOne(@Param('id') id: string) {
-        return this.ordersService.findOne(id);
-    }
-
-    @Get()
-    @UseGuards(RolesGuard)
-    @Roles(Role.ADMIN)
-    findAll(
-        @Query('page') page: string = '1',
-        @Query('limit') limit: string = '20',
-        @Query('status') status?: OrderStatus,
-    ) {
-        return this.ordersService.findAll(Number(page), Number(limit), status);
-    }
-
+    // ADMIN actualiza estado
     @Patch(':id/status')
     @UseGuards(RolesGuard)
     @Roles(Role.ADMIN)
@@ -59,5 +64,13 @@ export class OrdersController {
         @Body() updateOrderStatusDto: UpdateOrderStatusDto,
     ) {
         return this.ordersService.updateStatus(id, updateOrderStatusDto);
+    }
+
+    // ---- Rutas dinámicas al final ----
+
+    // Detalle de un pedido (por id)
+    @Get(':id')
+    findOne(@Param('id') id: string) {
+        return this.ordersService.findOne(id);
     }
 }
