@@ -49,7 +49,6 @@ export class ProductsService {
     } = query;
     const skip = (page - 1) * limit;
 
-    // Construir where
     const where: any = { isActive: true };
 
     if (search) {
@@ -68,31 +67,30 @@ export class ProductsService {
       where.inventory = { quantity: { gt: 0 } };
     }
 
-    // Ordenamiento
     let orderBy: any = { createdAt: 'desc' };
     if (sortBy === ProductSortBy.PRICE_ASC)  orderBy = { price: 'asc' };
     if (sortBy === ProductSortBy.PRICE_DESC) orderBy = { price: 'desc' };
-    // best_seller se ordena post-query (ver abajo)
 
     if (sortBy === ProductSortBy.BEST_SELLER) {
-      // Traer todos los que coinciden con los filtros y ordenar por ventas
       const allProducts = await this.prisma.product.findMany({
         where,
         include: {
           category: true,
           inventory: true,
-          items: { select: { quantity: true } },
+          orderItems: { select: { quantity: true } },   // ← fix
         },
       });
 
       const sorted = allProducts
         .map((p) => ({
           ...p,
-          totalSold: p.items.reduce((acc, i) => acc + i.quantity, 0),
+          totalSold: p.orderItems.reduce((acc, i) => acc + i.quantity, 0),  // ← fix
         }))
         .sort((a, b) => b.totalSold - a.totalSold);
 
-      const paginated = sorted.slice(skip, skip + limit).map(({ items: _items, totalSold: _ts, ...p }) => p);
+      const paginated = sorted
+        .slice(skip, skip + limit)
+        .map(({ orderItems: _oi, totalSold: _ts, ...p }) => p);  // ← fix
 
       return {
         data: paginated,
@@ -142,7 +140,6 @@ export class ProductsService {
     return this.prisma.product.update({ where: { id }, data: { isActive: false } });
   }
 
-  /** Devuelve el rango de precios para los sliders del frontend */
   async getPriceRange() {
     const result = await this.prisma.product.aggregate({
       where: { isActive: true },
