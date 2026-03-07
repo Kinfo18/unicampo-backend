@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
+import { OrderStatus } from '@prisma/client';
 
 @Injectable()
 export class DashboardService {
@@ -15,16 +16,9 @@ export class DashboardService {
             lowStockItems,
             revenueData,
         ] = await this.prisma.$transaction([
-            // Total de pedidos
             this.prisma.order.count(),
-
-            // Total de usuarios
             this.prisma.user.count({ where: { role: 'CUSTOMER' } }),
-
-            // Total de productos activos
             this.prisma.product.count({ where: { isActive: true } }),
-
-            // Últimos 5 pedidos
             this.prisma.order.findMany({
                 take: 5,
                 orderBy: { createdAt: 'desc' },
@@ -33,47 +27,39 @@ export class DashboardService {
                     items: { include: { product: { select: { name: true } } } },
                 },
             }),
-
-            // Top 5 productos más vendidos
             this.prisma.orderItem.groupBy({
                 by: ['productId'],
                 _sum: { quantity: true },
                 orderBy: { _sum: { quantity: 'desc' } },
                 take: 5,
             }),
-
-            // Productos con stock bajo
             this.prisma.inventory.findMany({
-                include: {
-                    product: { select: { name: true, slug: true } },
-                },
+                include: { product: { select: { name: true, slug: true } } },
             }),
-
-            // Ingresos totales
             this.prisma.order.aggregate({
                 _sum: { total: true },
-                where: { paymentStatus: 'APPROVED' },
             }),
         ]);
 
-        // Enriquecer top productos con nombres
+        // Pedidos por estado
+        const ordersByStatus = await Promise.all(
+            Object.values(OrderStatus).map(async (status) => ({
+                status,
+                count: await this.prisma.order.count({ where: { status } }),
+            }))
+        );
+
         const topProductsWithNames = await Promise.all(
             topProducts.map(async (item) => {
                 const product = await this.prisma.product.findUnique({
                     where: { id: item.productId },
                     select: { name: true, slug: true },
                 });
-                return {
-                    product,
-                    totalSold: item._sum?.quantity ?? 0,
-                };
+                return { product, totalSold: item._sum?.quantity ?? 0 };
             }),
         );
 
-        // Filtrar stock bajo
-        const lowStock = lowStockItems.filter(
-            (item) => item.quantity <= item.minStock,
-        );
+        const lowStock = lowStockItems.filter((item) => item.quantity <= item.minStock);
 
         return {
             summary: {
@@ -82,35 +68,36 @@ export class DashboardService {
                 totalProducts,
                 totalRevenue: Number(revenueData._sum.total ?? 0),
             },
+            ordersByStatus,
             recentOrders,
             topProducts: topProductsWithNames,
             lowStockAlerts: lowStock.map((item) => ({
                 productName: item.product.name,
                 currentStock: item.quantity,
                 minStock: item.minStock,
-                alertMessage: `⚠️ ${item.product.name}: ${item.quantity} unidades restantes`,
             })),
         };
     }
 
     async getRevenueByMonth() {
+        // Últimos 6 meses
+        const since = new Date();
+        since.setMonth(since.getMonth() - 5);
+        since.setDate(1);
+        since.setHours(0, 0, 0, 0);
+
         const orders = await this.prisma.order.findMany({
-            where: { paymentStatus: 'APPROVED' },
+            where: { createdAt: { gte: since } },
             select: { total: true, createdAt: true },
             orderBy: { createdAt: 'asc' },
         });
 
-        // Agrupar por mes
         const revenueByMonth: Record<string, number> = {};
-
         orders.forEach((order) => {
-            const month = order.createdAt.toISOString().slice(0, 7); // "2026-03"
+            const month = order.createdAt.toISOString().slice(0, 7);
             revenueByMonth[month] = (revenueByMonth[month] ?? 0) + Number(order.total);
         });
 
-        return Object.entries(revenueByMonth).map(([month, revenue]) => ({
-            month,
-            revenue,
-        }));
+        return Object.entries(revenueByMonth).map(([month, revenue]) => ({ month, revenue }));
     }
 }
