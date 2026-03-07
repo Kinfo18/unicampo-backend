@@ -15,10 +15,14 @@ import { Role } from '@prisma/client';
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
-  // Rutas públicas
   @Get()
   findAll(@Query() query: ProductQueryDto) {
     return this.productsService.findAll(query);
+  }
+
+  @Get('price-range')
+  getPriceRange() {
+    return this.productsService.getPriceRange();
   }
 
   @Get(':id')
@@ -26,7 +30,6 @@ export class ProductsController {
     return this.productsService.findOne(id);
   }
 
-  // Rutas protegidas — solo ADMIN
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
