@@ -9,6 +9,41 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { OrderStatus } from '@prisma/client';
 
+// Secuencia estricta de avance
+const FLOW: OrderStatus[] = [
+    OrderStatus.PENDING,
+    OrderStatus.CONFIRMED,
+    OrderStatus.SHIPPED,
+    OrderStatus.DELIVERED,
+];
+
+function validateTransition(current: OrderStatus, next: OrderStatus): void {
+    // Pedido cancelado: no se puede modificar
+    if (current === OrderStatus.CANCELLED) {
+        throw new BadRequestException('Un pedido cancelado no puede cambiar de estado.');
+    }
+    // Pedido entregado: estado final
+    if (current === OrderStatus.DELIVERED) {
+        throw new BadRequestException('Un pedido entregado no puede cambiar de estado.');
+    }
+    // Cancelar: solo permitido antes de SHIPPED
+    if (next === OrderStatus.CANCELLED) {
+        const idx = FLOW.indexOf(current);
+        if (idx >= FLOW.indexOf(OrderStatus.SHIPPED)) {
+            throw new BadRequestException('No se puede cancelar un pedido que ya fue enviado.');
+        }
+        return;
+    }
+    // Avance: solo un paso a la vez
+    const currentIdx = FLOW.indexOf(current);
+    const nextIdx = FLOW.indexOf(next);
+    if (nextIdx !== currentIdx + 1) {
+        throw new BadRequestException(
+            `Transición inválida: no se puede pasar de "${current}" a "${next}". Solo se permite avanzar un paso.`,
+        );
+    }
+}
+
 @Injectable()
 export class OrdersService {
     constructor(
@@ -29,9 +64,7 @@ export class OrdersService {
                     include: { inventory: true },
                 });
 
-                if (!product) {
-                    throw new NotFoundException(`Producto ${item.productId} no encontrado`);
-                }
+                if (!product) throw new NotFoundException(`Producto ${item.productId} no encontrado`);
 
                 if (!product.inventory || product.inventory.quantity < item.quantity) {
                     throw new BadRequestException(
@@ -53,9 +86,7 @@ export class OrdersService {
                     items: { create: orderItemsData },
                 },
                 include: {
-                    items: {
-                        include: { product: { select: { name: true, images: true } } },
-                    },
+                    items: { include: { product: { select: { name: true, images: true } } } },
                 },
             });
 
@@ -68,12 +99,7 @@ export class OrdersService {
 
             return order;
         }).then(async (order) => {
-            await this.usersService.saveAddressIfEmpty(
-                userId,
-                shippingAddress,
-                municipality,
-                department,
-            );
+            await this.usersService.saveAddressIfEmpty(userId, shippingAddress, municipality, department);
             return order;
         });
     }
@@ -102,9 +128,7 @@ export class OrdersService {
         return this.prisma.order.findMany({
             where: { userId },
             include: {
-                items: {
-                    include: { product: { select: { name: true, images: true, slug: true } } },
-                },
+                items: { include: { product: { select: { name: true, images: true, slug: true } } } },
             },
             orderBy: { createdAt: 'desc' },
         });
@@ -115,9 +139,7 @@ export class OrdersService {
             where: { id },
             include: {
                 user: { select: { id: true, name: true, email: true } },
-                items: {
-                    include: { product: { select: { name: true, images: true, slug: true } } },
-                },
+                items: { include: { product: { select: { name: true, images: true, slug: true } } } },
             },
         });
         if (!order) throw new NotFoundException('Pedido no encontrado');
@@ -125,7 +147,8 @@ export class OrdersService {
     }
 
     async updateStatus(id: string, dto: UpdateOrderStatusDto) {
-        await this.findOne(id);
+        const order = await this.findOne(id);
+        validateTransition(order.status, dto.status);
         return this.prisma.order.update({
             where: { id },
             data: { status: dto.status },
