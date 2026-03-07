@@ -2,11 +2,13 @@ import {
   Injectable,
   ConflictException,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductQueryDto, ProductSortBy } from './dto/product-query.dto';
+import { RestockProductDto } from './dto/restock-product.dto';
 
 @Injectable()
 export class ProductsService {
@@ -77,20 +79,20 @@ export class ProductsService {
         include: {
           category: true,
           inventory: true,
-          orderItems: { select: { quantity: true } },   // ← fix
+          orderItems: { select: { quantity: true } },
         },
       });
 
       const sorted = allProducts
         .map((p) => ({
           ...p,
-          totalSold: p.orderItems.reduce((acc, i) => acc + i.quantity, 0),  // ← fix
+          totalSold: p.orderItems.reduce((acc, i) => acc + i.quantity, 0),
         }))
         .sort((a, b) => b.totalSold - a.totalSold);
 
       const paginated = sorted
         .slice(skip, skip + limit)
-        .map(({ orderItems: _oi, totalSold: _ts, ...p }) => p);  // ← fix
+        .map(({ orderItems: _oi, totalSold: _ts, ...p }) => p);
 
       return {
         data: paginated,
@@ -126,12 +128,47 @@ export class ProductsService {
 
   async update(id: string, updateProductDto: UpdateProductDto) {
     await this.findOne(id);
-    const data: any = { ...updateProductDto };
+    // initialStock y minStock NO se procesan aquí — usar /stock para reabastecer
+    const { initialStock: _i, minStock: _m, ...productFields } = updateProductDto as any;
+    const data: any = { ...productFields };
     if (updateProductDto.name) data.slug = this.generateSlug(updateProductDto.name);
     return this.prisma.product.update({
       where: { id },
       data,
       include: { category: true, inventory: true },
+    });
+  }
+
+  /**
+   * Reabastecimiento incremental: suma `units` al stock actual.
+   * Opcionalmente actualiza el stock mínimo de alerta.
+   * Usa prisma.inventory.update con `increment` para evitar race conditions.
+   */
+  async restock(id: string, dto: RestockProductDto) {
+    const product = await this.prisma.product.findFirst({
+      where: { OR: [{ id }, { slug: id }] },
+      include: { inventory: true },
+    });
+    if (!product) throw new NotFoundException('Producto no encontrado');
+    if (!product.inventory) throw new BadRequestException('El producto no tiene inventario registrado');
+
+    return this.prisma.$transaction(async (tx) => {
+      const inventoryData: any = { quantity: { increment: dto.units } };
+      if (dto.minStock !== undefined) inventoryData.minStock = dto.minStock;
+
+      const inventory = await tx.inventory.update({
+        where: { productId: product.id },
+        data: inventoryData,
+      });
+
+      return {
+        productId: product.id,
+        name: product.name,
+        previousStock: inventory.quantity - dto.units,
+        addedUnits: dto.units,
+        currentStock: inventory.quantity,
+        minStock: inventory.minStock,
+      };
     });
   }
 
